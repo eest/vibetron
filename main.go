@@ -40,6 +40,15 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			return
 		}
 
+		if m.Content == ".help" {
+			st, err := s.UserChannelCreate(m.Author.ID)
+			if err != nil {
+				log.Printf("unable to find user with ID %s: %s", m.Author.ID, err)
+				return
+			}
+			s.ChannelMessageSend(st.ID, "```md\n# available commands are:\n* .help: this information\n* .uptime: the bot uptime\n* .version: the bot version```")
+		}
+
 		if m.Content == ".version" {
 			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("version: %s", version))
 		}
