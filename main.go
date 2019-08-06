@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 )
 
 const (
@@ -21,20 +22,40 @@ var (
 	version = "undefined"
 )
 
-func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+type botState struct {
+	startTime time.Time
+}
 
-	// Ignore messages from the bot itself
-	if m.Author.ID == s.State.User.ID {
-		return
-	}
+func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.MessageCreate) {
 
-	// Ignore messages from other bots
-	if m.Author.Bot {
-		return
-	}
+	return func(s *discordgo.Session, m *discordgo.MessageCreate) {
 
-	if m.Content == ".version" {
-		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("version: %s", version))
+		// Ignore messages from the bot itself
+		if m.Author.ID == s.State.User.ID {
+			return
+		}
+
+		// Ignore messages from other bots
+		if m.Author.Bot {
+			return
+		}
+
+		if m.Content == ".version" {
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("version: %s", version))
+		}
+
+		if m.Content == ".uptime" {
+			s.ChannelMessageSend(
+				m.ChannelID,
+				fmt.Sprintf(
+					"uptime: %s",
+					// Round time to time.Second to not get
+					// an unnecessary amount of decimals in
+					// the string.
+					time.Since(bs.startTime).Round(time.Second).String(),
+				),
+			)
+		}
 	}
 }
 
@@ -44,9 +65,13 @@ func runBot(token string) error {
 		return errors.New("runBot: token is required")
 	}
 
+	bs := botState{
+		startTime: time.Now(),
+	}
+
 	dg, err := discordgo.New("Bot " + token)
 
-	dg.AddHandler(messageCreate)
+	dg.AddHandler(messageCreateWrapper(bs))
 
 	err = dg.Open()
 	if err != nil {
