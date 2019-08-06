@@ -112,7 +112,6 @@ func main() {
 	}
 
 	err = runBot(token)
-
 	if err != nil {
 		log.Fatal(err)
 	}
