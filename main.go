@@ -70,6 +70,9 @@ func runBot(token string) error {
 	}
 
 	dg, err := discordgo.New("Bot " + token)
+	if err != nil {
+		return fmt.Errorf("runBot: unable to init new Discord session: %s", err)
+	}
 
 	dg.AddHandler(messageCreateWrapper(bs))
 
