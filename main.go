@@ -98,11 +98,13 @@ func runBot(token string) error {
 
 func main() {
 
+	// Read bot token from file
 	tokenBytes, err := ioutil.ReadFile(tokenFile)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	// Make sure no whitespace is present in the token data
 	token := strings.TrimSpace(string(tokenBytes))
 
 	if token == "" {
