@@ -6,6 +6,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"os"
 	"os/signal"
 	"strings"
@@ -46,7 +47,7 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 				log.Printf("unable to find user with ID %s: %s", m.Author.ID, err)
 				return
 			}
-			s.ChannelMessageSend(st.ID, "```md\n# available commands are:\n* .help: this information\n* .uptime: the bot uptime\n* .version: the bot version```")
+			s.ChannelMessageSend(st.ID, "```md\n# available commands are:\n* .help: this information\n* .roll: get a random number (0-100)\n* .uptime: the bot uptime\n* .version: the bot version```")
 		}
 
 		if m.Content == ".version" {
@@ -64,6 +65,11 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 					time.Since(bs.startTime).Round(time.Second).String(),
 				),
 			)
+		}
+
+		if m.Content == ".roll" {
+			res := rand.Intn(100)
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s rolls %d", m.Author.Mention(), res))
 		}
 	}
 }
