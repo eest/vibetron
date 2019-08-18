@@ -75,6 +75,18 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			res := rand.Intn(rollMax-rollMin) + rollMin
 			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s rolls (%d-%d): %d", m.Author.Mention(), rollMin, rollMax, res))
 		}
+
+		if m.Content == ".flip" {
+			res := rand.Intn(2)
+
+			side := "HEADS"
+
+			if res == 1 {
+				side = "TAILS"
+			}
+
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s flips: %s", m.Author.Mention(), side))
+		}
 	}
 }
 
