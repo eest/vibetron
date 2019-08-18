@@ -1,6 +1,8 @@
 package main
 
 import (
+	crand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
@@ -111,6 +113,22 @@ func runBot(token string) error {
 	return nil
 }
 
+// Get a fairly random seed, at least more random than the startup time.
+func getRandomSeed() (int64, error) {
+
+	// Mix of https://godoc.org/crypto/rand and
+	// https://stackoverflow.com/questions/12321133/golang-random-number-generator-how-to-seed-properly
+	c := 10
+	b := make([]byte, c)
+	_, err := crand.Read(b)
+	if err != nil {
+		return 0, err
+	}
+
+	return int64(binary.LittleEndian.Uint64(b)), nil
+
+}
+
 func main() {
 
 	// Read bot token from file
@@ -125,6 +143,12 @@ func main() {
 	if token == "" {
 		log.Fatalf("token file %s appears empty, exiting", tokenFile)
 	}
+
+	seed, err := getRandomSeed()
+	if err != nil {
+		log.Fatal(err)
+	}
+	rand.Seed(seed)
 
 	err = runBot(token)
 	if err != nil {
