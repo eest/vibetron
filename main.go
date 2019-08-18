@@ -73,7 +73,7 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			rollMin := 1
 			rollMax := 100
 			res := rand.Intn(rollMax-rollMin) + rollMin
-			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s rolls %d", m.Author.Mention(), res))
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s rolls (%d-%d): %d", m.Author.Mention(), rollMin, rollMax, res))
 		}
 	}
 }
