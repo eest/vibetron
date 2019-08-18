@@ -49,7 +49,17 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 				log.Printf("unable to find user with ID %s: %s", m.Author.ID, err)
 				return
 			}
-			s.ChannelMessageSend(st.ID, "```md\n# available commands are:\n* .help: this information\n* .roll: get a random number (1-100)\n* .uptime: the bot uptime\n* .version: the bot version```")
+			s.ChannelMessageSend(
+				st.ID,
+				"```md\n"+
+					"# available commands are:\n"+
+					"* .flip: flip a coin\n"+
+					"* .help: this information\n"+
+					"* .roll: get a random number (1-100)\n"+
+					"* .uptime: the bot uptime\n"+
+					"* .version: the bot version\n"+
+					"```",
+			)
 		}
 
 		if m.Content == ".version" {
