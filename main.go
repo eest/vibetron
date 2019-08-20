@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -25,8 +26,16 @@ var (
 	version = "undefined"
 )
 
+type timer struct {
+	mux     sync.RWMutex
+	timeMap map[string]time.Time
+}
+
 type botState struct {
 	startTime time.Time
+	// Use pointer to timer struct so the included sync.RWMutex is not
+	// copied by value
+	timer *timer
 }
 
 func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.MessageCreate) {
@@ -56,6 +65,9 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 					"* .flip: flip a coin\n"+
 					"* .help: this information\n"+
 					"* .roll: get a random number (1-100)\n"+
+					"* .swstart: start stopwatch timer\n"+
+					"* .swlap: show current stopwatch time\n"+
+					"* .swstop: stop stopwatch and show final time\n"+
 					"* .uptime: the bot uptime\n"+
 					"* .version: the bot version\n"+
 					"```",
@@ -97,7 +109,69 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 
 			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s flips: %s", m.Author.Mention(), side))
 		}
+
+		if m.Content == ".swstart" {
+			started := startwatchStart(bs, m.Author.ID)
+
+			if started {
+				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch started", m.Author.Mention()))
+			} else {
+				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch already running, stop with `.swstop`", m.Author.Mention()))
+			}
+		}
+
+		if m.Content == ".swlap" {
+			duration, running := startwatchLap(bs, m.Author.ID)
+
+			if running {
+				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch lap time: %s", m.Author.Mention(), duration.String()))
+			} else {
+				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch is not running, start with `.swstart`", m.Author.Mention()))
+			}
+		}
+
+		if m.Content == ".swstop" {
+			duration, stopped := startwatchStop(bs, m.Author.ID)
+
+			if stopped {
+				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch stopped, final time: %s", m.Author.Mention(), duration.String()))
+			} else {
+				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch is not running, start with `.swstart`", m.Author.Mention()))
+			}
+		}
 	}
+}
+
+func startwatchStart(bs botState, id string) bool {
+	bs.timer.mux.Lock()
+	defer bs.timer.mux.Unlock()
+	if _, ok := bs.timer.timeMap[id]; !ok {
+		bs.timer.timeMap[id] = time.Now()
+		return true
+	}
+
+	return false
+}
+
+func startwatchLap(bs botState, id string) (time.Duration, bool) {
+	bs.timer.mux.RLock()
+	defer bs.timer.mux.RUnlock()
+	if t, ok := bs.timer.timeMap[id]; ok {
+		return time.Since(t), true
+	}
+
+	return 0, false
+}
+
+func startwatchStop(bs botState, id string) (time.Duration, bool) {
+	bs.timer.mux.Lock()
+	defer bs.timer.mux.Unlock()
+	if t, ok := bs.timer.timeMap[id]; ok {
+		delete(bs.timer.timeMap, id)
+		return time.Since(t), true
+	}
+
+	return 0, false
 }
 
 func runBot(token string) error {
@@ -108,6 +182,9 @@ func runBot(token string) error {
 
 	bs := botState{
 		startTime: time.Now(),
+		timer: &timer{
+			timeMap: map[string]time.Time{},
+		},
 	}
 
 	dg, err := discordgo.New("Bot " + token)
