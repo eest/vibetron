@@ -245,6 +245,8 @@ func main() {
 		log.Fatalf("token file %s appears empty, exiting", tokenFile)
 	}
 
+	// Since the bot has some randomness dependent functionality like the
+	// .flip and .roll commands, seed the PRNG with some unknown data.
 	seed, err := getRandomSeed()
 	if err != nil {
 		log.Fatal(err)
