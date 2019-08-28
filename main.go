@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	tokenFile = "/run/secrets/vibetron_token"
+	tokenFile = "/run/secrets/vibetron_token" // #nosec
 )
 
 var (
@@ -58,7 +58,7 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 				log.Printf("unable to find user with ID %s: %s", m.Author.ID, err)
 				return
 			}
-			s.ChannelMessageSend(
+			_, err = s.ChannelMessageSend(
 				st.ID,
 				"```md\n"+
 					"# available commands are:\n"+
@@ -72,14 +72,21 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 					"* .version: the bot version\n"+
 					"```",
 			)
+
+			if err != nil {
+				log.Printf(".help: %s", err)
+			}
 		}
 
 		if m.Content == ".version" {
-			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("version: %s", version))
+			_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("version: %s", version))
+			if err != nil {
+				log.Printf(".version: %s", err)
+			}
 		}
 
 		if m.Content == ".uptime" {
-			s.ChannelMessageSend(
+			_, err := s.ChannelMessageSend(
 				m.ChannelID,
 				fmt.Sprintf(
 					"uptime: %s",
@@ -89,13 +96,19 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 					time.Since(bs.startTime).Round(time.Second).String(),
 				),
 			)
+			if err != nil {
+				log.Printf(".uptime: %s", err)
+			}
 		}
 
 		if m.Content == ".roll" {
 			rollMin := 1
 			rollMax := 100
 			res := rollMin + rand.Intn(rollMax-rollMin+1)
-			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s rolls (%d-%d): %d", m.Author.Mention(), rollMin, rollMax, res))
+			_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s rolls (%d-%d): %d", m.Author.Mention(), rollMin, rollMax, res))
+			if err != nil {
+				log.Printf(".roll: %s", err)
+			}
 		}
 
 		if m.Content == ".flip" {
@@ -107,16 +120,25 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 				side = "TAILS"
 			}
 
-			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s flips: %s", m.Author.Mention(), side))
+			_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s flips: %s", m.Author.Mention(), side))
+			if err != nil {
+				log.Printf(".flip: %s", err)
+			}
 		}
 
 		if m.Content == ".swstart" {
 			started := startwatchStart(bs, m.Author.ID)
 
 			if started {
-				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch started", m.Author.Mention()))
+				_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch started", m.Author.Mention()))
+				if err != nil {
+					log.Printf(".swstart(started): %s", err)
+				}
 			} else {
-				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch already running, stop with `.swstop`", m.Author.Mention()))
+				_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch already running, stop with `.swstop`", m.Author.Mention()))
+				if err != nil {
+					log.Printf(".swstart(not started): %s", err)
+				}
 			}
 		}
 
@@ -124,9 +146,15 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			duration, running := startwatchLap(bs, m.Author.ID)
 
 			if running {
-				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch lap time: %s", m.Author.Mention(), duration.String()))
+				_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch lap time: %s", m.Author.Mention(), duration.String()))
+				if err != nil {
+					log.Printf(".swlap(running): %s", err)
+				}
 			} else {
-				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch is not running, start with `.swstart`", m.Author.Mention()))
+				_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch is not running, start with `.swstart`", m.Author.Mention()))
+				if err != nil {
+					log.Printf(".swlap(not running): %s", err)
+				}
 			}
 		}
 
@@ -134,9 +162,15 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			duration, stopped := startwatchStop(bs, m.Author.ID)
 
 			if stopped {
-				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch stopped, final time: %s", m.Author.Mention(), duration.String()))
+				_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch stopped, final time: %s", m.Author.Mention(), duration.String()))
+				if err != nil {
+					log.Printf(".swstop(stopped): %s", err)
+				}
 			} else {
-				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch is not running, start with `.swstart`", m.Author.Mention()))
+				_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch is not running, start with `.swstart`", m.Author.Mention()))
+				if err != nil {
+					log.Printf(".swstop(not stopped): %s", err)
+				}
 			}
 		}
 	}
