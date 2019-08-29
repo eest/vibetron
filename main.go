@@ -166,6 +166,7 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 					log.Printf(".swstop(not stopped): %s", err)
 				}
 			}
+
 		}
 	}
 }
