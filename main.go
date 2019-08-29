@@ -52,7 +52,8 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			return
 		}
 
-		if m.Content == ".help" {
+		switch m.Content {
+		case ".help":
 			st, err := s.UserChannelCreate(m.Author.ID)
 			if err != nil {
 				log.Printf("unable to find user with ID %s: %s", m.Author.ID, err)
@@ -76,16 +77,14 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			if err != nil {
 				log.Printf(".help: %s", err)
 			}
-		}
 
-		if m.Content == ".version" {
+		case ".version":
 			_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("version: %s", version))
 			if err != nil {
 				log.Printf(".version: %s", err)
 			}
-		}
 
-		if m.Content == ".uptime" {
+		case ".uptime":
 			_, err := s.ChannelMessageSend(
 				m.ChannelID,
 				fmt.Sprintf(
@@ -99,9 +98,8 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			if err != nil {
 				log.Printf(".uptime: %s", err)
 			}
-		}
 
-		if m.Content == ".roll" {
+		case ".roll":
 			rollMin := 1
 			rollMax := 100
 			res := rollMin + rand.Intn(rollMax-rollMin+1)
@@ -109,9 +107,8 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			if err != nil {
 				log.Printf(".roll: %s", err)
 			}
-		}
 
-		if m.Content == ".flip" {
+		case ".flip":
 			res := rand.Intn(2)
 
 			side := "HEADS"
@@ -124,9 +121,8 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			if err != nil {
 				log.Printf(".flip: %s", err)
 			}
-		}
 
-		if m.Content == ".swstart" {
+		case ".swstart":
 			started := startwatchStart(bs, m.Author.ID)
 
 			if started {
@@ -140,9 +136,8 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 					log.Printf(".swstart(not started): %s", err)
 				}
 			}
-		}
 
-		if m.Content == ".swlap" {
+		case ".swlap":
 			duration, running := startwatchLap(bs, m.Author.ID)
 
 			if running {
@@ -156,9 +151,8 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 					log.Printf(".swlap(not running): %s", err)
 				}
 			}
-		}
 
-		if m.Content == ".swstop" {
+		case ".swstop":
 			duration, stopped := startwatchStop(bs, m.Author.ID)
 
 			if stopped {
