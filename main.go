@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -66,6 +67,7 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 					"* .flip: flip a coin\n"+
 					"* .help: this information\n"+
 					"* .roll: get a random number (1-100)\n"+
+					"* .runtime: the go version used to build the bot\n"+
 					"* .swstart: start stopwatch timer\n"+
 					"* .swlap: show current stopwatch time\n"+
 					"* .swstop: stop stopwatch and show final time\n"+
@@ -76,6 +78,12 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 
 			if err != nil {
 				log.Printf(".help: %s", err)
+			}
+
+		case ".runtime":
+			_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("runtime: %s", runtime.Version()))
+			if err != nil {
+				log.Printf(".runtime: %s", err)
 			}
 
 		case ".version":
