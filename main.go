@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	tokenFile = "/run/secrets/vibetron_token" // #nosec
+	tokenFile = "/run/vibetron/token" // #nosec
 )
 
 var (
