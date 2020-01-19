@@ -1,11 +1,12 @@
 How to build:
 ```
-docker build . -t eest/vibetron:x.y.z --build-arg=VIBETRON_VERSION=x.y.z
+VIBETRON_VERSION=x.y.z
+docker build . -t eest/vibetron:${VIBETRON_VERSION} --build-arg=VIBETRON_VERSION=${VIBETRON_VERSION}
 ```
 
 How to publish:
 ```
-$ docker push eest/vibetron:x.y.z
+$ docker push eest/vibetron:${VIBETRON_VERSION}
 ```
 
 How to create secret:
