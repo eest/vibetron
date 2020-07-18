@@ -1,5 +1,5 @@
 # Start with a build stage
-FROM golang:1.13.6-alpine3.11 AS builder
+FROM golang:1.14.6-alpine3.12 AS builder
 
 # Git is needed during build:
 # Step 4/7 : RUN go build -tags=netgo
