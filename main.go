@@ -2,10 +2,16 @@ package main
 
 import (
 	crand "crypto/rand"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
+	"flag"
 	"fmt"
+	"github.com/BurntSushi/toml"
 	"github.com/bwmarrin/discordgo"
+	goredislib "github.com/go-redis/redis/v8"
+	"github.com/go-redsync/redsync/v4"
+	"github.com/go-redsync/redsync/v4/redis/goredis/v8"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -19,7 +25,8 @@ import (
 )
 
 const (
-	tokenFile = "/run/vibetron/token" // #nosec
+	tokenFile     = "/run/vibetron/token" // #nosec
+	ipv4Localhost = "127.0.0.1"
 )
 
 var (
@@ -37,6 +44,18 @@ type botState struct {
 	// Use pointer to timer struct so the included sync.RWMutex is not
 	// copied by value
 	timer *timer
+	rs    *redsync.Redsync
+}
+
+// apiServiceConfig holds information read from the config file used by the API service.
+type vibetronConfig struct {
+	Redis redisConfig
+}
+
+type redisConfig struct {
+	Address  string
+	Port     int
+	Password string
 }
 
 func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.MessageCreate) {
@@ -52,6 +71,18 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 		if m.Author.Bot {
 			return
 		}
+
+		mutex := bs.rs.NewMutex(
+			m.ID,
+			redsync.WithTries(1),
+			redsync.WithExpiry(10*time.Second),
+		)
+
+		if err := mutex.Lock(); err != nil {
+			log.Printf("unable to get lock for message ID %s: %s", m.ID, err)
+			return
+		}
+		log.Printf("aquired lock for message ID %s", m.ID)
 
 		switch m.Content {
 		case ".help":
@@ -211,7 +242,7 @@ func startwatchStop(bs botState, id string) (time.Duration, bool) {
 	return 0, false
 }
 
-func runBot(token string) error {
+func runBot(token string, rs *redsync.Redsync) error {
 
 	if token == "" {
 		return errors.New("runBot: token is required")
@@ -222,6 +253,7 @@ func runBot(token string) error {
 		timer: &timer{
 			timeMap: map[string]time.Time{},
 		},
+		rs: rs,
 	}
 
 	dg, err := discordgo.New("Bot " + token)
@@ -267,7 +299,36 @@ func getRandomSeed() (int64, error) {
 
 }
 
+// readAPIServiceConfig parses the supplied configuration file or falls back to
+// default settings.
+func readVibetronConfig(configFile *string) *vibetronConfig {
+	config := newVibetronConfig()
+
+	if *configFile != "" {
+		log.Printf("reading config file %s", *configFile)
+		if _, err := toml.DecodeFile(*configFile, config); err != nil {
+			log.Fatalf("TOML decoding failed: %s", err)
+		}
+	}
+
+	return config
+}
+
+// newVibetronConfig returns default configuration
+func newVibetronConfig() *vibetronConfig {
+	return &vibetronConfig{
+		Redis: redisConfig{
+			Address:  ipv4Localhost,
+			Port:     6379,
+			Password: "",
+		},
+	}
+}
+
 func main() {
+
+	configFile := flag.String("config", "", "configuration file")
+	flag.Parse()
 
 	// Read bot token from file
 	tokenBytes, err := ioutil.ReadFile(tokenFile)
@@ -282,6 +343,9 @@ func main() {
 		log.Fatalf("token file %s appears empty, exiting", tokenFile)
 	}
 
+	// Fetch configuration settings.
+	config := readVibetronConfig(configFile)
+
 	// Since the bot has some randomness dependent functionality like the
 	// .flip and .roll commands, seed the PRNG with some unknown data.
 	seed, err := getRandomSeed()
@@ -290,7 +354,21 @@ func main() {
 	}
 	rand.Seed(seed)
 
-	err = runBot(token)
+	// Create a pool with go-redis (or redigo) which is the pool redisync will
+	// use while communicating with Redis. This can also be any pool that
+	// implements the `redis.Pool` interface.
+	client := goredislib.NewClient(&goredislib.Options{
+		Addr:      fmt.Sprintf("%s:%d", config.Redis.Address, config.Redis.Port),
+		Password:  config.Redis.Password,
+		TLSConfig: &tls.Config{},
+	})
+	pool := goredis.NewPool(client) // or, pool := redigo.NewPool(...)
+
+	// Create an instance of redisync to be used to obtain a mutual exclusion
+	// lock.
+	rs := redsync.New(pool)
+
+	err = runBot(token, rs)
 	if err != nil {
 		log.Fatal(err)
 	}
