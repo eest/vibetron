@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	crand "crypto/rand"
 	"crypto/tls"
 	"encoding/binary"
@@ -18,8 +19,8 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -34,17 +35,11 @@ var (
 	version = "undefined"
 )
 
-type timer struct {
-	mux     sync.RWMutex
-	timeMap map[string]time.Time
-}
-
 type botState struct {
 	startTime time.Time
-	// Use pointer to timer struct so the included sync.RWMutex is not
-	// copied by value
-	timer *timer
-	rs    *redsync.Redsync
+	rdb       *goredislib.Client
+	rs        *redsync.Redsync
+	hostname  string
 }
 
 // apiServiceConfig holds information read from the config file used by the API service.
@@ -56,6 +51,21 @@ type redisConfig struct {
 	Address  string
 	Port     int
 	Password string
+}
+
+func getMessageLock(bs botState, m *discordgo.MessageCreate) bool {
+	mutex := bs.rs.NewMutex(
+		m.ID,
+		redsync.WithTries(1),
+		redsync.WithExpiry(10*time.Second),
+	)
+
+	if err := mutex.Lock(); err != nil {
+		log.Printf("unable to get lock for message ID %s: %s", m.ID, err)
+		return false
+	}
+	log.Printf("aquired lock for message ID %s", m.ID)
+	return true
 }
 
 func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.MessageCreate) {
@@ -72,20 +82,13 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			return
 		}
 
-		mutex := bs.rs.NewMutex(
-			m.ID,
-			redsync.WithTries(1),
-			redsync.WithExpiry(10*time.Second),
-		)
-
-		if err := mutex.Lock(); err != nil {
-			log.Printf("unable to get lock for message ID %s: %s", m.ID, err)
-			return
-		}
-		log.Printf("aquired lock for message ID %s", m.ID)
-
 		switch m.Content {
 		case ".help":
+
+			if ok := getMessageLock(bs, m); !ok {
+				return
+			}
+
 			st, err := s.UserChannelCreate(m.Author.ID)
 			if err != nil {
 				log.Printf("unable to find user with ID %s: %s", m.Author.ID, err)
@@ -112,13 +115,13 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			}
 
 		case ".runtime":
-			_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("runtime: %s", runtime.Version()))
+			_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s runtime: %s", bs.hostname, runtime.Version()))
 			if err != nil {
 				log.Printf(".runtime: %s", err)
 			}
 
 		case ".version":
-			_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("version: %s", version))
+			_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s version: %s", bs.hostname, version))
 			if err != nil {
 				log.Printf(".version: %s", err)
 			}
@@ -127,10 +130,11 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			_, err := s.ChannelMessageSend(
 				m.ChannelID,
 				fmt.Sprintf(
-					"uptime: %s",
+					"%s uptime: %s",
 					// Round time to time.Second to not get
 					// an unnecessary amount of decimals in
 					// the string.
+					bs.hostname,
 					time.Since(bs.startTime).Round(time.Second).String(),
 				),
 			)
@@ -139,6 +143,10 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			}
 
 		case ".roll":
+			if ok := getMessageLock(bs, m); !ok {
+				return
+			}
+
 			rollMin := 1
 			rollMax := 100
 			res := rollMin + rand.Intn(rollMax-rollMin+1)
@@ -148,6 +156,10 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			}
 
 		case ".flip":
+			if ok := getMessageLock(bs, m); !ok {
+				return
+			}
+
 			res := rand.Intn(2)
 
 			side := "HEADS"
@@ -162,7 +174,19 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			}
 
 		case ".swstart":
-			started := startwatchStart(bs, m.Author.ID)
+			if ok := getMessageLock(bs, m); !ok {
+				return
+			}
+
+			started, err := startwatchStart(bs, m.Author.ID)
+			if err != nil {
+				log.Printf(".swstart(init): %s", err)
+				_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch failed", m.Author.Mention()))
+				if err != nil {
+					log.Printf(".swstart(init 2): %s", err)
+				}
+				return
+			}
 
 			if started {
 				_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch started", m.Author.Mention()))
@@ -177,7 +201,19 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			}
 
 		case ".swlap":
-			duration, running := startwatchLap(bs, m.Author.ID)
+			if ok := getMessageLock(bs, m); !ok {
+				return
+			}
+
+			duration, running, err := startwatchLap(bs, m.Author.ID)
+			if err != nil {
+				log.Printf(".swlap(init): %s", err)
+				_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch lap failed", m.Author.Mention()))
+				if err != nil {
+					log.Printf(".swlap(init 2): %s", err)
+				}
+				return
+			}
 
 			if running {
 				_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch lap time: %s", m.Author.Mention(), duration.String()))
@@ -192,7 +228,19 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 			}
 
 		case ".swstop":
-			duration, stopped := startwatchStop(bs, m.Author.ID)
+			if ok := getMessageLock(bs, m); !ok {
+				return
+			}
+
+			duration, stopped, err := startwatchStop(bs, m.Author.ID)
+			if err != nil {
+				log.Printf(".swtop(init): %s", err)
+				_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch stop failed", m.Author.Mention()))
+				if err != nil {
+					log.Printf(".swstop(init 2): %s", err)
+				}
+				return
+			}
 
 			if stopped {
 				_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s: stopwatch stopped, final time: %s", m.Author.Mention(), duration.String()))
@@ -210,50 +258,100 @@ func messageCreateWrapper(bs botState) func(*discordgo.Session, *discordgo.Messa
 	}
 }
 
-func startwatchStart(bs botState, id string) bool {
-	bs.timer.mux.Lock()
-	defer bs.timer.mux.Unlock()
-	if _, ok := bs.timer.timeMap[id]; !ok {
-		bs.timer.timeMap[id] = time.Now()
-		return true
-	}
+func startwatchStart(bs botState, id string) (bool, error) {
+	err := bs.rdb.HGet(context.Background(), "startwatch", id).Err()
+	if err == goredislib.Nil {
+		// The key did not exist, create it.
+		//
+		// If multiple .swstart messages arrive simultaneously for the
+		// same author ID I assume it is possible a race
+		// condition occurs where multiple calls get a Nil result from
+		// the HGET above.
+		//
+		// For this reason use HSETNX below so we only store the first
+		// (hopefully oldest) timestamp and ignore the rest in that
+		// case.
+		err := bs.rdb.HSetNX(
+			context.Background(),
+			"startwatch",
+			id,
+			strconv.FormatInt(time.Now().Unix(), 10),
+		).Err()
+		if err != nil {
+			return false, err
+		}
 
-	return false
+		return true, nil
+	} else if err != nil {
+		log.Printf("startwatchStart err: %s", err)
+		return false, err
+	}
+	// The key already exists
+	return false, nil
 }
 
-func startwatchLap(bs botState, id string) (time.Duration, bool) {
-	bs.timer.mux.RLock()
-	defer bs.timer.mux.RUnlock()
-	if t, ok := bs.timer.timeMap[id]; ok {
-		return time.Since(t), true
+func startwatchLap(bs botState, id string) (time.Duration, bool, error) {
+	unixTs, err := bs.rdb.HGet(context.Background(), "startwatch", id).Result()
+	if err == goredislib.Nil {
+		return 0, false, nil
+	} else if err != nil {
+		log.Printf("startwatchLap err: %s", err)
+		return 0, false, err
 	}
 
-	return 0, false
-}
-
-func startwatchStop(bs botState, id string) (time.Duration, bool) {
-	bs.timer.mux.Lock()
-	defer bs.timer.mux.Unlock()
-	if t, ok := bs.timer.timeMap[id]; ok {
-		delete(bs.timer.timeMap, id)
-		return time.Since(t), true
+	unixTsInt, err := strconv.ParseInt(unixTs, 10, 0)
+	if err != nil {
+		return 0, false, err
 	}
 
-	return 0, false
+	t := time.Unix(unixTsInt, 0)
+
+	return time.Since(t), true, nil
 }
 
-func runBot(token string, rs *redsync.Redsync) error {
+func startwatchStop(bs botState, id string) (time.Duration, bool, error) {
+	unixTs, err := bs.rdb.HGet(context.Background(), "startwatch", id).Result()
+	if err == goredislib.Nil {
+		return 0, false, nil
+	} else if err != nil {
+		log.Printf("startwatchStop err: %s", err)
+		return 0, false, err
+	}
+
+	err = bs.rdb.HDel(context.Background(), "startwatch", id).Err()
+	if err == goredislib.Nil {
+		// Someone else already removed the key, this is OK
+		log.Printf("startwatchStop tried removing nonexistent id: %s", id)
+	} else if err != nil {
+		return 0, false, err
+	}
+
+	unixTsInt, err := strconv.ParseInt(unixTs, 10, 0)
+	if err != nil {
+		return 0, false, err
+	}
+
+	t := time.Unix(unixTsInt, 0)
+
+	return time.Since(t), true, nil
+}
+
+func runBot(token string, rdb *goredislib.Client, rs *redsync.Redsync) error {
 
 	if token == "" {
 		return errors.New("runBot: token is required")
 	}
 
+	hostname, err := os.Hostname()
+	if err != nil {
+		return fmt.Errorf("hostname error: %s", err)
+	}
+
 	bs := botState{
 		startTime: time.Now(),
-		timer: &timer{
-			timeMap: map[string]time.Time{},
-		},
-		rs: rs,
+		rdb:       rdb,
+		rs:        rs,
+		hostname:  hostname,
 	}
 
 	dg, err := discordgo.New("Bot " + token)
@@ -357,18 +455,18 @@ func main() {
 	// Create a pool with go-redis (or redigo) which is the pool redisync will
 	// use while communicating with Redis. This can also be any pool that
 	// implements the `redis.Pool` interface.
-	client := goredislib.NewClient(&goredislib.Options{
+	rdb := goredislib.NewClient(&goredislib.Options{
 		Addr:      fmt.Sprintf("%s:%d", config.Redis.Address, config.Redis.Port),
 		Password:  config.Redis.Password,
 		TLSConfig: &tls.Config{},
 	})
-	pool := goredis.NewPool(client) // or, pool := redigo.NewPool(...)
+	pool := goredis.NewPool(rdb) // or, pool := redigo.NewPool(...)
 
 	// Create an instance of redisync to be used to obtain a mutual exclusion
 	// lock.
 	rs := redsync.New(pool)
 
-	err = runBot(token, rs)
+	err = runBot(token, rdb, rs)
 	if err != nil {
 		log.Fatal(err)
 	}
