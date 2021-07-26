@@ -48,9 +48,11 @@ type vibetronConfig struct {
 }
 
 type redisConfig struct {
-	Address  string
-	Port     int
-	Password string
+	Address            string
+	Port               int
+	Password           string
+	Sentinel           bool
+	SentinelMasterName string
 }
 
 func getMessageLock(bs botState, m *discordgo.MessageCreate) bool {
@@ -416,9 +418,11 @@ func readVibetronConfig(configFile *string) *vibetronConfig {
 func newVibetronConfig() *vibetronConfig {
 	return &vibetronConfig{
 		Redis: redisConfig{
-			Address:  ipv4Localhost,
-			Port:     6379,
-			Password: "",
+			Address:            ipv4Localhost,
+			Port:               6379,
+			Password:           "",
+			Sentinel:           false,
+			SentinelMasterName: "mymaster",
 		},
 	}
 }
@@ -452,14 +456,25 @@ func main() {
 	}
 	rand.Seed(seed)
 
-	// Create a pool with go-redis (or redigo) which is the pool redisync will
-	// use while communicating with Redis. This can also be any pool that
-	// implements the `redis.Pool` interface.
-	rdb := goredislib.NewClient(&goredislib.Options{
-		Addr:      fmt.Sprintf("%s:%d", config.Redis.Address, config.Redis.Port),
-		Password:  config.Redis.Password,
-		TLSConfig: &tls.Config{},
-	})
+	var rdb *goredislib.Client
+	if config.Redis.Sentinel {
+		// Create a pool with go-redis (or redigo) which is the pool redisync will
+		// use while communicating with Redis. This can also be any pool that
+		// implements the `redis.Pool` interface.
+		rdb = goredislib.NewFailoverClient(&goredislib.FailoverOptions{
+			MasterName:    config.Redis.SentinelMasterName,
+			SentinelAddrs: []string{fmt.Sprintf("%s:%d", config.Redis.Address, config.Redis.Port)},
+		})
+	} else {
+		// Create a pool with go-redis (or redigo) which is the pool redisync will
+		// use while communicating with Redis. This can also be any pool that
+		// implements the `redis.Pool` interface.
+		rdb = goredislib.NewClient(&goredislib.Options{
+			Addr:      fmt.Sprintf("%s:%d", config.Redis.Address, config.Redis.Port),
+			Password:  config.Redis.Password,
+			TLSConfig: &tls.Config{},
+		})
+	}
 	pool := goredis.NewPool(rdb) // or, pool := redigo.NewPool(...)
 
 	// Create an instance of redisync to be used to obtain a mutual exclusion
